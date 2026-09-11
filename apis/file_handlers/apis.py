@@ -1,24 +1,28 @@
+import os
 import uuid
 from datetime import datetime, timedelta
 
 from common.db.connection import get_connection
 from elastic_search.models import IndexStatus
 from flask import request
-from google_cloud.pubsub.handler import publish_file_upload_complete
-from google_cloud.storage.handler import (
+from gcp.pubsub.handler import publish
+from gcp.storage.handler import (
     blob_exists,
     create_resumable_upload_session,
 )
-from google_cloud.tasks.handler import tasks_defer
+from gcp.tasks.handler import defer
 
 from apis.common.auth.handler import auth
 from apis.file_handlers.indexer import index_uploaded_file
-from apis.file_handlers.utils import (
-    get_allowed_content_types,
-    get_upload_session_ttl_hours,
-    sanitize_filename,
+from apis.file_handlers.utils import sanitize_filename
+from file_handlers.constants import (
+    ALLOWED_UPLOAD_CONTENT_TYPES,
+    GCS_BUCKET_NAME,
+    GCP_PROJECT_ID,
+    PUBSUB_TOPIC,
+    UPLOAD_SESSION_TTL_HOURS,
+    UploadStates,
 )
-from file_handlers.constants import UploadStates
 
 
 @auth(auth_required=False)
@@ -35,8 +39,10 @@ def create_upload_session():
     if not content_type or not isinstance(content_type, str):
         return {'error': 'content_type is required'}, 400
 
-    allowed = get_allowed_content_types()
-    if allowed is not None and content_type not in allowed:
+    if (
+        ALLOWED_UPLOAD_CONTENT_TYPES is not None
+        and content_type not in ALLOWED_UPLOAD_CONTENT_TYPES
+    ):
         return {'error': 'content_type is not allowed'}, 400
 
     if size_bytes is not None and (not isinstance(size_bytes, int) or size_bytes < 0):
@@ -54,14 +60,16 @@ def create_upload_session():
     object_path = f'uploads/{session_id}/{safe_filename}'
 
     now = datetime.now()
-    expires_at = now + timedelta(hours=get_upload_session_ttl_hours())
+    expires_at = now + timedelta(hours=UPLOAD_SESSION_TTL_HOURS)
     created_at_iso = now.isoformat()
     expires_at_iso = expires_at.isoformat()
 
     try:
         upload_url = create_resumable_upload_session(
+            bucket_name=GCS_BUCKET_NAME,
             object_path=object_path,
             content_type=content_type,
+            credentials_path=os.environ.get('GOOGLE_APPLICATION_CREDENTIALS'),
             origin=origin,
         )
     except ValueError as exc:
@@ -155,7 +163,11 @@ def complete_upload_session():
 
     object_path = session['object_path']
     try:
-        exists = blob_exists(object_path)
+        exists = blob_exists(
+            GCS_BUCKET_NAME,
+            object_path,
+            os.environ.get('GOOGLE_APPLICATION_CREDENTIALS'),
+        )
     except ValueError as exc:
         return {'error': str(exc)}, 500
     except Exception:
@@ -185,13 +197,19 @@ def complete_upload_session():
     message_id = None
     published = False
     try:
-        message_id = publish_file_upload_complete(payload)
+        message_id = publish(
+            PUBSUB_TOPIC,
+            payload,
+            GCP_PROJECT_ID,
+            os.environ.get('GOOGLE_APPLICATION_CREDENTIALS'),
+            attributes={'session_id': str(payload.get('session_id') or '')},
+        )
         published = True
     except Exception:
         published = False
 
     if not published:
-        tasks_defer(_index_session, session_id, delay_seconds=3)
+        defer(_index_session, session_id, delay_seconds=3)
 
     return {
         'session_id': session_id,

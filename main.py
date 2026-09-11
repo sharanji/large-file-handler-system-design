@@ -1,3 +1,4 @@
+import os
 import sys
 
 sys.path.insert(0, 'apis/')
@@ -10,9 +11,15 @@ from common.db.connection import init_db
 from common.routes import all_routes
 from elastic_search.client import ensure_index
 from file_handlers.apis import process_file_upload_complete_message
+from file_handlers.constants import (
+    GCP_PROJECT_ID,
+    PUBSUB_SUBSCRIPTION,
+    PUBSUB_TOPIC,
+)
 from flask import send_from_directory
-from google_cloud.pubsub.handler import (
-    ensure_topic_and_pull_subscription,
+from gcp.pubsub.handler import (
+    ensure_pull_subscription,
+    ensure_topic,
     start_pull_worker,
 )
 
@@ -25,8 +32,24 @@ try:
 except Exception:
     pass
 try:
-    ensure_topic_and_pull_subscription()
-    start_pull_worker(process_file_upload_complete_message)
+    project_id = GCP_PROJECT_ID
+    topic = PUBSUB_TOPIC
+    subscription = PUBSUB_SUBSCRIPTION
+    credentials_path = os.environ.get('GOOGLE_APPLICATION_CREDENTIALS')
+    ensure_topic(topic, project_id, credentials_path)
+    ensure_pull_subscription(
+        subscription,
+        topic,
+        project_id,
+        credentials_path,
+        ack_deadline_seconds=600,
+    )
+    start_pull_worker(
+        subscription,
+        process_file_upload_complete_message,
+        project_id,
+        credentials_path,
+    )
 except Exception:
     pass
 

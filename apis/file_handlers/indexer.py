@@ -1,6 +1,9 @@
+import os
+
 from elastic_search.client import bulk_index_chunks
+from file_handlers.constants import GCS_BUCKET_NAME
 from elastic_search.models import FileChunkDocument
-from google_cloud.storage.handler import open_blob_text_stream
+from gcp.storage.handler import open_blob_text_stream
 
 LINES_PER_CHUNK = 200
 BULK_BATCH_SIZE = 50
@@ -38,7 +41,11 @@ def index_uploaded_file(session_id: str, object_path: str, filename: str) -> int
             bulk_index_chunks(chunks)
             chunks.clear()
 
-    with open_blob_text_stream(object_path) as stream:
+    with open_blob_text_stream(
+        GCS_BUCKET_NAME,
+        object_path,
+        os.environ.get('GOOGLE_APPLICATION_CREDENTIALS'),
+    ) as stream:
         for line in stream:
             if not lines_buffer:
                 line_start = current_line + 1

@@ -1,9 +1,7 @@
 import threading
 
-DEFAULT_DELAY_SECONDS = 3
 
-
-def tasks_defer(func, *args, delay_seconds=DEFAULT_DELAY_SECONDS, **kwargs):
+def defer(func, *args, delay_seconds: float, **kwargs):
     timer = threading.Timer(delay_seconds, func, args=args, kwargs=kwargs)
     timer.daemon = True
     timer.start()

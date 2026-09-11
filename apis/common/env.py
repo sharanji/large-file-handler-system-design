@@ -6,6 +6,13 @@ from dotenv import load_dotenv
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 
+def require_env(name: str) -> str:
+    value = os.environ.get(name)
+    if not value:
+        raise ValueError(f'{name} environment variable is required')
+    return value
+
+
 def load_app_env() -> None:
     load_dotenv(PROJECT_ROOT / '.env', override=True)
     creds = os.environ.get('GOOGLE_APPLICATION_CREDENTIALS')
