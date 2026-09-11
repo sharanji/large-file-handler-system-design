@@ -84,8 +84,8 @@ def create_upload_session():
             '''
             INSERT INTO upload_sessions (
               id, object_path, filename, content_type, size_bytes,
-              status, upload_url, created_at, expires_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+              status, upload_url, created_at, expires_at, uploaded_bytes
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''',
             (
                 session_id,
@@ -97,6 +97,7 @@ def create_upload_session():
                 upload_url,
                 created_at_iso,
                 expires_at_iso,
+                0,
             ),
         )
         conn.commit()
@@ -138,6 +139,49 @@ def _update_session(session_id: str, **fields) -> None:
         conn.commit()
     finally:
         conn.close()
+
+
+@auth(auth_required=False)
+def persist_upload_progress():
+    data = request.get_json(silent=True) or {}
+    session_id = data.get('session_id')
+    uploaded_bytes = data.get('uploaded_bytes')
+
+    if not session_id or not isinstance(session_id, str):
+        return {'error': 'session_id is required'}, 400
+    if not isinstance(uploaded_bytes, int) or uploaded_bytes < 0:
+        return {'error': 'uploaded_bytes must be a non-negative integer'}, 400
+
+    session = _load_session(session_id)
+    if session is None:
+        return {'error': 'upload session not found'}, 404
+    if session['status'] != UploadStates.STATUS_PENDING:
+        return {'error': 'upload session is not pending'}, 409
+
+    expires_at = datetime.fromisoformat(session['expires_at'])
+    if datetime.now() > expires_at:
+        _update_session(
+            session_id,
+            status=UploadStates.STATUS_EXPIRED,
+            index_status=IndexStatus.FAILED,
+            index_error='upload session expired',
+        )
+        return {'error': 'upload session expired'}, 410
+
+    size_bytes = session.get('size_bytes')
+    if size_bytes is not None and uploaded_bytes > size_bytes:
+        return {'error': 'uploaded_bytes exceeds file size'}, 400
+
+    previous = session.get('uploaded_bytes') or 0
+    if uploaded_bytes < previous:
+        uploaded_bytes = previous
+
+    _update_session(session_id, uploaded_bytes=uploaded_bytes)
+    return {
+        'session_id': session_id,
+        'uploaded_bytes': uploaded_bytes,
+        'status': session['status'],
+    }, 200
 
 
 @auth(auth_required=False)

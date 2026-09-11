@@ -7,7 +7,7 @@ Upload large text files to Google Cloud Storage, index their contents in Elastic
 ![Architecture](assets/architecture.png)
 
 1. **Request upload session** — The client asks Cloud Run for a signed resumable upload URL.
-2. **Upload file chunks** — The client writes the file directly to the GCS bucket `txt_file_store`.
+2. **Upload file chunks** — The browser splits the file and PUTs each chunk to GCS (`txt_file_store`) on the resumable URL. After each successful chunk it persists the byte offset in `localStorage`.
 3. **Publish complete** — The client notifies Cloud Run, which publishes to the Pub/Sub topic `file-upload-complete`.
 4. **Pull subscription** — Cloud Run pulls from `file-upload-complete`.
 5. **Index** — The worker reads the file from the bucket and writes word indexes to Elasticsearch.
@@ -31,12 +31,11 @@ Short answers for the usual scale / reliability questions. This is what the curr
 
 ### 1. How you handle a 10 GB file on a 4 GB RAM machine
 
-The API never holds the file. The browser divides file as streams bytes straight to GCS on a resumable upload URL which is Generated in Process 1. 
-Indexing opens the blob as a text stream, reads line by line, groups **200 lines** into a chunk, and bulk-indexes **50 chunks** at a time, then drops them from memory. RAM is roughly one chunk, not the 10 GB file.
+The API never holds the file. The browser slices the file into **8 MiB chunks** (256 KiB aligned for GCS) and streams each chunk to the resumable URL from step 1. Indexing opens the blob as a text stream, reads line by line, groups **200 lines** into a chunk, and bulk-indexes **50 chunks** at a time, then drops them from memory. RAM is roughly one upload chunk plus one index batch, not the 10 GB file.
 
 ### 2. How you handle interrupted uploads
 
-Upload is a GCS **resumable session**. If the PUT dies mid-file, the client can retry against the same `upload_url` until `expires_at` (24 hours). The API only marks the session complete after blob_exists` on the object path. A half-written object that never shows up as complete stays pending, then expired`. Completing twice is safe: if `index_status` is already `indexed`, the Pub/Sub worker returns without re-indexing.
+The frontend owns resume. After **each chunk PUT succeeds**, it writes `session_id`, `upload_url`, and `next_offset` to `localStorage`. A refresh or crash does not restart the file: pick the **same file** (name, size, last-modified) and it continues from that offset. It also asks GCS (`Content-Range: bytes */total`) so if the last chunk landed but the tab died before persist, it still skips completed bytes and **retries only the last failed chunk**. Sessions expire after 24 hours. Complete-upload still requires the object to exist; indexing twice is a no-op if already `indexed`.
 
 ### 3. How you would support multiple concurrent uploads
 
@@ -54,8 +53,7 @@ Chunks are stored in `file_chunks_v2`. `content` is English-analyzed text (`copy
 
 - **Uploads:** stay client → GCS; Cloud Run only mints URLs. Raise GCS quotas and Cloud Run max instances; do not proxy file bytes through the app.
 - **Indexing:** dedicated workers (more Cloud Run min instances, or GKE) pulling Pub/Sub; ack deadline already 600s. Replace in-process `defer` fallback. Move session state off SQLite to Firestore/Postgres.
-- **Search:** Elasticsearch as the scale-out layer (replicas, ILM, bigger cluster). Keep the API a thin query frontend. Add rate limits and cache hot queries.
-- **Isolation:** separate ingest and query services so a burst of 10 GB index jobs cannot starve search.
+- **Search:** Elasticsearch as the scale-out layer (replicas, ILM, bigger cluster). Keep the API a thin query frontend. Add rate limits and cache hot queries. 
 
 ## Try it
 
@@ -77,6 +75,6 @@ Run in order: **Create upload session** → **PUT file to GCS** → **Complete u
 | --- | --- | --- |
 | `GET` | `/hello` | Health check (`Server is running`) |
 | `POST` | `/api/file-handler/create-upload-session` | Returns a GCS resumable `upload_url` |
-| `PUT` | `upload_url` (GCS, not this API) | Upload the file bytes |
+| `PUT` | `upload_url` (GCS, not this API) | Upload a chunk (`Content-Range: bytes start-end/total`) |
 | `POST` | `/api/file-handler/complete-upload-session` | Start indexing |
 | `GET` / `POST` | `/api/search` | Search by `query`; optional `session_id` |

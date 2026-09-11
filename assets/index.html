@@ -23,7 +23,8 @@
             <div class="card-body">
               <h2 class="h5 card-title">Upload a text file</h2>
               <p class="text-muted small">
-                The file is sent to cloud storage, then indexed for meaning-based search.
+                The browser splits the file into chunks and uploads them to cloud storage.
+                Each successful chunk is saved, so a refresh only retries the last failed chunk.
               </p>
               <form id="upload-form">
                 <div class="mb-3">
@@ -37,6 +38,9 @@
                 </div>
                 <button type="submit" class="btn btn-primary" id="upload-btn">
                   Upload and index
+                </button>
+                <button type="button" class="btn btn-outline-secondary d-none" id="discard-upload-btn">
+                  Discard incomplete upload
                 </button>
               </form>
               <div class="progress mt-3 d-none" id="upload-progress-wrap">
