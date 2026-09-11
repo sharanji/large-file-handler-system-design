@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>File word search</title>
+    <link
+      href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css"
+      rel="stylesheet"
+    />
+  </head>
+  <body class="bg-light">
+    <nav class="navbar navbar-dark bg-dark mb-4">
+      <div class="container">
+        <span class="navbar-brand mb-0 h1">Large file search</span>
+      </div>
+    </nav>
+
+    <main class="container pb-5">
+      <div class="row g-4">
+        <div class="col-lg-6">
+          <div class="card shadow-sm">
+            <div class="card-body">
+              <h2 class="h5 card-title">Upload a text file</h2>
+              <p class="text-muted small">
+                The file is sent to cloud storage, then indexed for word search.
+              </p>
+              <form id="upload-form">
+                <div class="mb-3">
+                  <label for="file-input" class="form-label">File</label>
+                  <input
+                    class="form-control"
+                    type="file"
+                    id="file-input"
+                    required
+                  />
+                </div>
+                <button type="submit" class="btn btn-primary" id="upload-btn">
+                  Upload and index
+                </button>
+              </form>
+              <div class="progress mt-3 d-none" id="upload-progress-wrap">
+                <div
+                  class="progress-bar"
+                  id="upload-progress"
+                  role="progressbar"
+                  style="width: 0%"
+                >
+                  0%
+                </div>
+              </div>
+              <div class="alert mt-3 d-none" id="upload-status" role="alert"></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="col-lg-6">
+          <div class="card shadow-sm">
+            <div class="card-body">
+              <h2 class="h5 card-title">Search words</h2>
+              <form id="search-form">
+                <div class="mb-3">
+                  <label for="query-input" class="form-label">Word or phrase</label>
+                  <input
+                    class="form-control"
+                    type="text"
+                    id="query-input"
+                    placeholder="example"
+                    required
+                  />
+                </div>
+                <div class="form-check mb-3">
+                  <input
+                    class="form-check-input"
+                    type="checkbox"
+                    id="limit-last-file"
+                    checked
+                  />
+                  <label class="form-check-label" for="limit-last-file">
+                    Search only the last uploaded file
+                  </label>
+                </div>
+                <button type="submit" class="btn btn-success" id="search-btn">
+                  Search
+                </button>
+              </form>
+              <div class="alert mt-3 d-none" id="search-status" role="alert"></div>
+              <ul class="list-group mt-3" id="search-results"></ul>
+            </div>
+          </div>
+        </div>
+      </div>
+    </main>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="/assets/app.js"></script>
+  </body>
+</html>
