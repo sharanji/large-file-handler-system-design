@@ -9,6 +9,7 @@ _INDEX_COLUMNS = {
     'indexed_at': 'TEXT',
     'index_error': 'TEXT',
     'chunk_count': 'INTEGER',
+    'uploaded_bytes': 'INTEGER NOT NULL DEFAULT 0',
 }
 
 
