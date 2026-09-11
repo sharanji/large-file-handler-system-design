@@ -1,0 +1,1 @@
+Connection to database failed after 30 seconds.

@@ -3,6 +3,15 @@ from flask import request
 
 from apis.common.auth.handler import auth
 
+CONTENT_EXCERPT_CHARS = 280
+
+
+def _content_excerpt(content: str) -> str:
+    text = ' '.join((content or '').split())
+    if len(text) <= CONTENT_EXCERPT_CHARS:
+        return text
+    return f'{text[:CONTENT_EXCERPT_CHARS].rstrip()}…'
+
 
 @auth(auth_required=False)
 def search_words():
@@ -24,6 +33,7 @@ def search_words():
     for hit in result.get('hits', {}).get('hits', []):
         source = hit.get('_source') or {}
         highlights = hit.get('highlight', {}).get('content') or []
+        snippets = highlights or [_content_excerpt(source.get('content') or '')]
         hits.append(
             {
                 'filename': source.get('filename'),
@@ -31,7 +41,7 @@ def search_words():
                 'chunk_index': source.get('chunk_index'),
                 'line_start': source.get('line_start'),
                 'line_end': source.get('line_end'),
-                'snippets': highlights,
+                'snippets': snippets,
                 'score': hit.get('_score'),
             }
         )

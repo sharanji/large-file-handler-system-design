@@ -6,9 +6,13 @@ import certifi
 from elasticsearch import Elasticsearch
 from elasticsearch.helpers import bulk
 
+from elasticsearch.exceptions import ApiError
+
 from elastic_search.models import (
     FILE_CHUNKS_INDEX,
     FILE_CHUNKS_MAPPING,
+    FILE_CHUNKS_MAPPING_LEXICAL,
+    FILE_CHUNKS_SETTINGS,
     FileChunkDocument,
 )
 
@@ -60,7 +64,7 @@ def _make_client() -> Elasticsearch:
     api_key = os.environ.get('ELASTICSEARCH_API_KEY') or None
     username = os.environ.get('ELASTICSEARCH_USERNAME') or None
     password = os.environ.get('ELASTICSEARCH_PASSWORD') or None
-    kwargs = {'request_timeout': 30}
+    kwargs = {'request_timeout': 120}
     if api_key:
         kwargs['api_key'] = api_key
     elif username and password:
@@ -86,10 +90,18 @@ def ensure_index() -> None:
     client = get_client()
     if client.indices.exists(index=FILE_CHUNKS_INDEX):
         return
-    client.indices.create(
-        index=FILE_CHUNKS_INDEX,
-        mappings=FILE_CHUNKS_MAPPING,
-    )
+    try:
+        client.indices.create(
+            index=FILE_CHUNKS_INDEX,
+            settings=FILE_CHUNKS_SETTINGS,
+            mappings=FILE_CHUNKS_MAPPING,
+        )
+    except ApiError:
+        client.indices.create(
+            index=FILE_CHUNKS_INDEX,
+            settings=FILE_CHUNKS_SETTINGS,
+            mappings=FILE_CHUNKS_MAPPING_LEXICAL,
+        )
 
 
 def bulk_index_chunks(chunks: list[FileChunkDocument]) -> None:
@@ -107,28 +119,84 @@ def bulk_index_chunks(chunks: list[FileChunkDocument]) -> None:
     bulk(client, actions)
 
 
-def search_chunks(query: str, session_id: str | None = None, size: int = 20) -> dict:
-    must = [{'match': {'content': query}}]
-    filters = []
+def _session_filters(session_id: str | None) -> list[dict]:
     if session_id:
-        filters.append({'term': {'session_id': session_id}})
+        return [{'term': {'session_id': session_id}}]
+    return []
 
-    body = {
-        'query': {
-            'bool': {
-                'must': must,
-                'filter': filters,
+
+def _highlight() -> dict:
+    return {
+        'fields': {
+            'content': {
+                'number_of_fragments': 3,
+                'fragment_size': 160,
             }
-        },
-        'highlight': {
-            'fields': {
-                'content': {
-                    'number_of_fragments': 3,
-                    'fragment_size': 160,
-                }
-            }
-        },
-        'size': size,
+        }
     }
+
+
+def _lexical_query(query: str, filters: list[dict]) -> dict:
+    return {
+        'bool': {
+            'must': [
+                {
+                    'match': {
+                        'content': {
+                            'query': query,
+                            'operator': 'or',
+                            'fuzziness': 'AUTO',
+                        }
+                    }
+                }
+            ],
+            'filter': filters,
+        }
+    }
+
+
+def _semantic_query(query: str, filters: list[dict]) -> dict:
+    return {
+        'bool': {
+            'must': [
+                {
+                    'semantic': {
+                        'field': 'semantic_content',
+                        'query': query,
+                    }
+                }
+            ],
+            'filter': filters,
+        }
+    }
+
+
+def _hybrid_retriever(query: str, filters: list[dict]) -> dict:
+    return {
+        'rrf': {
+            'retrievers': [
+                {'standard': {'query': _lexical_query(query, filters)}},
+                {'standard': {'query': _semantic_query(query, filters)}},
+            ]
+        }
+    }
+
+
+def search_chunks(query: str, session_id: str | None = None, size: int = 20) -> dict:
+    filters = _session_filters(session_id)
     client = get_client()
-    return client.search(index=FILE_CHUNKS_INDEX, **body)
+    highlight = _highlight()
+    try:
+        return client.search(
+            index=FILE_CHUNKS_INDEX,
+            retriever=_hybrid_retriever(query, filters),
+            highlight=highlight,
+            size=size,
+        )
+    except ApiError:
+        return client.search(
+            index=FILE_CHUNKS_INDEX,
+            query=_lexical_query(query, filters),
+            highlight=highlight,
+            size=size,
+        )

@@ -2,7 +2,27 @@ from dataclasses import asdict, dataclass
 from enum import Enum
 
 
-FILE_CHUNKS_INDEX = 'file_chunks'
+FILE_CHUNKS_INDEX = 'file_chunks_v2'
+
+FILE_CHUNKS_SETTINGS = {
+    'analysis': {
+        'analyzer': {
+            'chunk_text': {
+                'type': 'english',
+            }
+        }
+    }
+}
+
+CONTENT_TEXT_MAPPING = {
+    'type': 'text',
+    'analyzer': 'chunk_text',
+    'term_vector': 'with_positions_offsets',
+}
+
+SEMANTIC_CONTENT_MAPPING = {
+    'type': 'semantic_text',
+}
 
 FILE_CHUNKS_MAPPING = {
     'properties': {
@@ -13,10 +33,22 @@ FILE_CHUNKS_MAPPING = {
         'line_start': {'type': 'integer'},
         'line_end': {'type': 'integer'},
         'content': {
-            'type': 'text',
-            'analyzer': 'standard',
-            'term_vector': 'with_positions_offsets',
+            **CONTENT_TEXT_MAPPING,
+            'copy_to': 'semantic_content',
         },
+        'semantic_content': SEMANTIC_CONTENT_MAPPING,
+    }
+}
+
+FILE_CHUNKS_MAPPING_LEXICAL = {
+    'properties': {
+        'session_id': {'type': 'keyword'},
+        'object_path': {'type': 'keyword'},
+        'filename': {'type': 'keyword'},
+        'chunk_index': {'type': 'integer'},
+        'line_start': {'type': 'integer'},
+        'line_end': {'type': 'integer'},
+        'content': CONTENT_TEXT_MAPPING,
     }
 }
 
